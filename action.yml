@@ -1,0 +1,58 @@
+name: 'Cloudflare Pages Deploy'
+description: 'Deploy to Cloudflare Pages and comment preview URL on Forgejo PRs'
+
+inputs:
+  cloudflare-api-token:
+    description: 'Cloudflare API token with Pages permissions'
+    required: true
+  cloudflare-account-id:
+    description: 'Cloudflare account ID'
+    required: true
+  project-name:
+    description: 'Cloudflare Pages project name'
+    required: true
+  directory:
+    description: 'Directory of static assets to deploy'
+    required: true
+  forgejo-token:
+    description: 'Forgejo API token for PR comments (defaults to GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
+  comment-marker:
+    description: 'HTML comment marker for idempotent comment updates'
+    required: false
+    default: '<!-- cf-pages-deploy -->'
+
+outputs:
+  deployment-url:
+    description: 'The deployment URL (hash-based)'
+    value: ${{ steps.deploy.outputs.deployment-url }}
+  deployment-alias-url:
+    description: 'Branch/PR-specific alias URL (preview URL)'
+    value: ${{ steps.deploy.outputs.deployment-alias-url }}
+  environment:
+    description: 'Deployment environment (production or preview)'
+    value: ${{ steps.deploy.outputs.environment }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Deploy to Cloudflare Pages
+      id: deploy
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        INPUT_PROJECT_NAME: ${{ inputs.project-name }}
+        INPUT_DIRECTORY: ${{ inputs.directory }}
+      run: ${{ github.action_path }}/deploy.sh
+
+    - name: Comment preview URL on PR
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        INPUT_FORGEJO_TOKEN: ${{ inputs.forgejo-token }}
+        INPUT_COMMENT_MARKER: ${{ inputs.comment-marker }}
+        INPUT_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-alias-url || steps.deploy.outputs.deployment-url }}
+        INPUT_ENVIRONMENT: ${{ steps.deploy.outputs.environment }}
+      run: ${{ github.action_path }}/comment.sh
