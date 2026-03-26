@@ -2,7 +2,8 @@
 set -euo pipefail
 
 DEPLOYMENT_URL="${INPUT_DEPLOYMENT_URL:-}"
-if [ -z "$DEPLOYMENT_URL" ]; then
+ALIAS_URL="${INPUT_ALIAS_URL:-}"
+if [ -z "$DEPLOYMENT_URL" ] && [ -z "$ALIAS_URL" ]; then
   echo "No deployment URL, skipping comment"
   exit 0
 fi
@@ -17,8 +18,19 @@ BODY="${MARKER}
 ### Cloudflare Pages Preview
 
 | | |
-|---|---|
-| **Preview URL** | ${DEPLOYMENT_URL} |
+|---|---|"
+
+if [ -n "$ALIAS_URL" ]; then
+  BODY+="
+| **Preview URL** | ${ALIAS_URL} |"
+fi
+
+if [ -n "$DEPLOYMENT_URL" ]; then
+  BODY+="
+| **Commit URL** | ${DEPLOYMENT_URL} |"
+fi
+
+BODY+="
 | **Commit** | \`${SHORT_SHA}\` |
 | **Environment** | ${ENVIRONMENT} |"
 

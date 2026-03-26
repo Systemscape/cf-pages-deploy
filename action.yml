@@ -53,6 +53,7 @@ runs:
       env:
         INPUT_FORGEJO_TOKEN: ${{ inputs.forgejo-token }}
         INPUT_COMMENT_MARKER: ${{ inputs.comment-marker }}
-        INPUT_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-alias-url || steps.deploy.outputs.deployment-url }}
+        INPUT_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        INPUT_ALIAS_URL: ${{ steps.deploy.outputs.deployment-alias-url }}
         INPUT_ENVIRONMENT: ${{ steps.deploy.outputs.environment }}
       run: ${{ github.action_path }}/comment.sh
