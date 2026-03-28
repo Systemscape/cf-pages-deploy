@@ -6,7 +6,7 @@ Composite action for Forgejo that deploys to Cloudflare Pages and posts a previe
 
 ```yaml
 - name: Deploy to Cloudflare Pages
-  uses: https://git.systemscape.de/Systemscape/cf-pages-deploy@v1
+  uses: https://github.com/Systemscape/cf-pages-deploy@v1
   with:
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -35,6 +35,19 @@ On pull requests, the action automatically comments (or updates) a preview URL o
 | `forgejo-token` | No | `${{ github.token }}` | Forgejo API token for PR comments |
 | `comment-marker` | No | `<!-- cf-pages-deploy -->` | HTML comment marker for idempotent comment updates |
 
+## Caching wrangler
+
+The action installs wrangler via `npm ci` on each run. To avoid re-downloading it every time, cache the npm store before this action runs:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.npm
+    key: ${{ runner.os }}-npm-wrangler
+```
+
+With a warm cache, the `npm ci` step takes a couple of seconds instead of downloading wrangler from the registry.
+
 ## Outputs
 
 | Output | Description |
@@ -59,6 +72,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-wrangler
+
       - name: Build
         uses: https://github.com/shalzz/zola-deploy-action@v0.21.0
         env:
@@ -66,7 +84,7 @@ jobs:
           OUT_DIR: public
 
       - name: Deploy to Cloudflare Pages
-        uses: https://git.systemscape.de/Systemscape/cf-pages-deploy@v1
+        uses: https://github.com/Systemscape/cf-pages-deploy@v1
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -82,9 +100,9 @@ jobs:
 
 ## How it works
 
-1. **Deploy**: Runs `npx wrangler pages deploy` with the correct `--branch` derived from the CI environment (PR source branch or push branch), avoiding the detached-HEAD alias URL issue common in CI
+1. **Deploy**: Runs `wrangler pages deploy` with the correct `--branch` derived from the CI environment (PR source branch or push branch), avoiding the detached-HEAD alias URL issue common in CI
 2. **Comment**: On pull request events, creates or updates a comment on the PR with the preview URL using the Forgejo API. Uses an HTML comment marker to find and update existing comments instead of creating duplicates
 
 ## Requirements
 
-The runner image must have `curl`, `jq`, and `node`/`npx` installed.
+The runner image must have `curl`, `jq`, and `node`/`npm` installed.
