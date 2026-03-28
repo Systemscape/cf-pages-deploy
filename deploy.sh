@@ -12,7 +12,9 @@ fi
 WRANGLER_OUTPUT_DIR=$(mktemp -d)
 export WRANGLER_OUTPUT_FILE_DIRECTORY="$WRANGLER_OUTPUT_DIR"
 
-OUTPUT=$(npx wrangler pages deploy "$INPUT_DIRECTORY" \
+WRANGLER="$ACTION_PATH/node_modules/.bin/wrangler"
+
+OUTPUT=$("$WRANGLER" pages deploy "$INPUT_DIRECTORY" \
   --project-name="$INPUT_PROJECT_NAME" \
   --branch="$BRANCH" \
   --commit-hash="$GITHUB_SHA" 2>&1) || {

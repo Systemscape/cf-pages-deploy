@@ -37,6 +37,10 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Install wrangler
+      shell: bash
+      run: npm ci --prefix ${{ github.action_path }}
+
     - name: Deploy to Cloudflare Pages
       id: deploy
       shell: bash
@@ -45,6 +49,7 @@ runs:
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         INPUT_PROJECT_NAME: ${{ inputs.project-name }}
         INPUT_DIRECTORY: ${{ inputs.directory }}
+        ACTION_PATH: ${{ github.action_path }}
       run: ${{ github.action_path }}/deploy.sh
 
     - name: Comment preview URL on PR
