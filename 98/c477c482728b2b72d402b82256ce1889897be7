@@ -1,0 +1,19 @@
+action.yml
+  s_c4f0154ada13bd::t_7eedd4105afc1f 17-20,52-115,126-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "98c477c482728b2b72d402b82256ce1889897be7",
+  "prompts": {},
+  "sessions": {
+    "s_c4f0154ada13bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d12e22-aede-420e-8778-c1a90cbb7468",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "juliand <julian@systemscape.de>"
+    }
+  }
+}
