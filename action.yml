@@ -14,6 +14,10 @@ inputs:
   directory:
     description: 'Directory of static assets to deploy'
     required: true
+  wrangler-version:
+    description: 'Wrangler version to use (resolved via npx)'
+    required: false
+    default: '4.78.0'
   forgejo-token:
     description: 'Forgejo API token for PR comments (defaults to GITHUB_TOKEN)'
     required: false
@@ -37,10 +41,6 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install wrangler
-      shell: bash
-      run: npm ci --prefix ${{ github.action_path }}
-
     - name: Deploy to Cloudflare Pages
       id: deploy
       shell: bash
@@ -49,8 +49,70 @@ runs:
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         INPUT_PROJECT_NAME: ${{ inputs.project-name }}
         INPUT_DIRECTORY: ${{ inputs.directory }}
-        ACTION_PATH: ${{ github.action_path }}
-      run: ${{ github.action_path }}/deploy.sh
+        WRANGLER_VERSION: ${{ inputs.wrangler-version }}
+      run: |
+        set -euo pipefail
+
+        if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          BRANCH="$GITHUB_HEAD_REF"
+        else
+          BRANCH="$GITHUB_REF_NAME"
+        fi
+
+        WRANGLER_OUTPUT_DIR=$(mktemp -d)
+        export WRANGLER_OUTPUT_FILE_DIRECTORY="$WRANGLER_OUTPUT_DIR"
+
+        OUTPUT=$(npx --yes "wrangler@${WRANGLER_VERSION}" pages deploy "$INPUT_DIRECTORY" \
+          --project-name="$INPUT_PROJECT_NAME" \
+          --branch="$BRANCH" \
+          --commit-hash="$GITHUB_SHA" 2>&1) || {
+          echo "::error::Wrangler deploy failed"
+          echo "$OUTPUT"
+          exit 1
+        }
+
+        echo "$OUTPUT"
+
+        DEPLOYMENT_URL=""
+        ALIAS_URL=""
+        ENVIRONMENT=""
+
+        for f in "$WRANGLER_OUTPUT_DIR"/*.json; do
+          [ -f "$f" ] || continue
+          while IFS= read -r line; do
+            MATCH=$(echo "$line" | jq -r 'select(.type == "pages-deploy-detailed") | [.url, .alias, .environment] | map(. // "") | @tsv' 2>/dev/null) || continue
+            [ -z "$MATCH" ] && continue
+            IFS=$'\t' read -r DEPLOYMENT_URL ALIAS_URL ENVIRONMENT <<< "$MATCH"
+            break 2
+          done < "$f"
+        done
+
+        if [ -z "$DEPLOYMENT_URL" ]; then
+          DEPLOYMENT_URL=$(echo "$OUTPUT" | sed -n 's/.*Take a peek over at \(https:\/\/[^ ]*\).*/\1/p')
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            DEPLOYMENT_URL=$(echo "$OUTPUT" | sed -n 's/.*Visit your deployment at \(https:\/\/[^ ]*\).*/\1/p')
+          fi
+        fi
+
+        if [ -z "$ALIAS_URL" ]; then
+          ALIAS_URL=$(echo "$OUTPUT" | sed -n 's/.*alias URL: \(https:\/\/[^ ]*\).*/\1/p')
+        fi
+
+        if [ -z "$ENVIRONMENT" ]; then
+          if [ -n "$ALIAS_URL" ] && [ "$ALIAS_URL" != "$DEPLOYMENT_URL" ]; then
+            ENVIRONMENT="preview"
+          else
+            ENVIRONMENT="production"
+          fi
+        fi
+
+        rm -rf "$WRANGLER_OUTPUT_DIR"
+
+        {
+          echo "deployment-url=${DEPLOYMENT_URL}"
+          echo "deployment-alias-url=${ALIAS_URL}"
+          echo "environment=${ENVIRONMENT}"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Comment preview URL on PR
       if: github.event_name == 'pull_request'
@@ -61,4 +123,59 @@ runs:
         INPUT_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
         INPUT_ALIAS_URL: ${{ steps.deploy.outputs.deployment-alias-url }}
         INPUT_ENVIRONMENT: ${{ steps.deploy.outputs.environment }}
-      run: ${{ github.action_path }}/comment.sh
+      run: |
+        set -euo pipefail
+
+        DEPLOYMENT_URL="${INPUT_DEPLOYMENT_URL:-}"
+        ALIAS_URL="${INPUT_ALIAS_URL:-}"
+        if [ -z "$DEPLOYMENT_URL" ] && [ -z "$ALIAS_URL" ]; then
+          echo "No deployment URL, skipping comment"
+          exit 0
+        fi
+
+        API_BASE="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
+        PR_NUMBER=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
+        SHORT_SHA="${GITHUB_SHA:0:7}"
+        MARKER="${INPUT_COMMENT_MARKER}"
+        ENVIRONMENT="${INPUT_ENVIRONMENT:-preview}"
+
+        BODY="${MARKER}
+        ### Cloudflare Pages Preview
+
+        | | |
+        |---|---|"
+
+        if [ -n "$ALIAS_URL" ]; then
+          BODY+="
+        | **Preview URL** | ${ALIAS_URL} |"
+        fi
+
+        if [ -n "$DEPLOYMENT_URL" ]; then
+          BODY+="
+        | **Commit URL** | ${DEPLOYMENT_URL} |"
+        fi
+
+        BODY+="
+        | **Commit** | \`${SHORT_SHA}\` |
+        | **Environment** | ${ENVIRONMENT} |"
+
+        COMMENT_ID=$(curl -sSf \
+          -H "Authorization: token ${INPUT_FORGEJO_TOKEN}" \
+          "${API_BASE}/issues/${PR_NUMBER}/comments" \
+          | jq -r --arg marker "$MARKER" '.[] | select(.body | contains($marker)) | .id' | head -n1)
+
+        if [ -n "$COMMENT_ID" ] && [ "$COMMENT_ID" != "null" ]; then
+          echo "Updating comment ${COMMENT_ID}"
+          curl -sSf -X PATCH \
+            -H "Authorization: token ${INPUT_FORGEJO_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg body "$BODY" '{body: $body}')" \
+            "${API_BASE}/issues/comments/${COMMENT_ID}"
+        else
+          echo "Creating new comment"
+          curl -sSf -X POST \
+            -H "Authorization: token ${INPUT_FORGEJO_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg body "$BODY" '{body: $body}')" \
+            "${API_BASE}/issues/${PR_NUMBER}/comments"
+        fi
